@@ -1,0 +1,16 @@
+---------------------------------------------------------------------------------
+-- 
+-- Arcade: Centipede port to MiST by Gehstock
+-- 24 November 2018
+-- 
+-- 
+-- Only controls are rotated on VGA output.
+-- 
+-- 
+-- Keyboard inputs :
+--
+--   ESC        : Coin/Start Player
+--   SPACE 	: Fire or Fire Button
+--   ARROW KEYS : Movements
+---------------------------------------------------------------------------------
+Todo: Graphic Glitches
