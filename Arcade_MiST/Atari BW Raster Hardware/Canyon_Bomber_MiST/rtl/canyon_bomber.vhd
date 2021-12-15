@@ -29,9 +29,9 @@ use IEEE.STD_LOGIC_UNSIGNED.all;
 
 entity canyon_bomber is 
 port(		
-			clk_12	: in	std_logic;	-- 50MHz input clock
+			clk_12	: in	std_logic;	-- 12MHz input clock
 			Reset_I		: in	std_logic;	-- Reset button (Active low)
-			Video	: out 	std_logic_vector(1 downto 0);
+			VID	: out 	std_logic_vector(7 downto 0);
 			Vblank_O		: out 	std_logic;
 			HBlank_O		: out 	std_logic;
 			HSync_O			: out 	std_logic;
@@ -55,6 +55,7 @@ end canyon_bomber;
 architecture rtl of canyon_bomber is
 
 signal clk_6		: std_logic;
+signal clk_6en	: std_logic;
 signal Ena_3k		: std_logic;
 signal phi1 		: std_logic;
 signal phi2		: std_logic;
@@ -68,9 +69,9 @@ signal HBlank		: std_logic;
 signal VBlank		: std_logic;
 signal HSync		: std_logic;
 signal VSync		: std_logic;
-signal Vblank_s		: std_logic;
+signal Vblank_s	: std_logic;
 signal Vblank_n_s	: std_logic;
-
+signal Video		: std_logic_vector(1 downto 0);
 signal CompBlank_n_s	: std_logic;
 
 signal CompSync_n_s	: std_logic;
@@ -127,6 +128,7 @@ Vid_sync: entity work.synchronizer
 port map(
 		clk_12 => clk_12,
 		clk_6	=> clk_6,
+		clk_6en	=> clk_6en,
 		hcount => hcount,
 		vcount => vcount,
 		hsync => HSync,
@@ -138,10 +140,10 @@ port map(
 		vreset => vreset
 		);
 
-
 Background: entity work.playfield
 port map( 
-		clk6	=> clk_6,
+		clk12	=> clk_12,
+		clk6en	=> clk_6en,
 		display => display,
 		HCount => HCount,
 		VCount => VCount,
@@ -156,12 +158,11 @@ port map(
 		WhitePF_n => WhitePF_n,
 		BlackPF_n => BlackPF_n 
 		);
-
 		
 Motion_Objects: entity work.motion
 port map(
-		CLK6 => clk_6,
 		CLK12 => clk_12,
+		clk6en => clk_6en,
 		PHI2 => phi2,
 		DISPLAY => Display,
 		H256_s => H256_s,
@@ -174,11 +175,9 @@ port map(
 		Ship2_n => Ship2_n
 		);
 		
-		
 CPU: entity work.cpu_mem
 port map(
 		Clk12 => clk_12,
-		Clk6	=> clk_6,
 		Ena_3k => Ena_3k,
 		Reset_I => Reset_I,
 		Reset_n => reset_n,
@@ -208,11 +207,10 @@ port map(
 		DBus => DBus,
 		Display => Display
 		);
-
 	
 Sound: entity work.audio
 port map( 
-		Clk_6	=> Clk_6,
+		Clk_12	=> Clk_12,
 		Ena_3k => Ena_3k,
 		Reset_n => Reset_n,
 		Motor1_n => Motor1_n,
@@ -228,7 +226,6 @@ port map(
 		P2_audio => Audio2_O
 		);
 
-
 -- Video mixing	
 Video(0) <= ( BlackPF_n and Ship1_n and Shell1_n and CompBlank_n_s);	
 Video(1) <= not(WhitePF_n and Ship2_n and Shell2_n);  
@@ -236,5 +233,14 @@ Sync_O <= CompSync_n_s;
 HBlank_O <= HBlank;
 VBlank_O <= VBlank;
 HSync_O <= HSync;
-VSync_O <= VSync;
+Vid_Mix: process(clk_12, Video)
+begin
+	case Video is
+		when "01" => VID <= ("10000000");
+		when "10" => VID <= ("01010000");
+		when "11" => VID <= ("11111111");
+		when others => VID <= ("00000000");
+	end case;
+end process;
+
 end rtl;

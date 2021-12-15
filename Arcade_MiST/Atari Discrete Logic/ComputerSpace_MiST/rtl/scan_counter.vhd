@@ -138,8 +138,13 @@ if rising_edge (game_clk) then
 				if hcount = 159 then hsync <= '1'; end if;
 				if hcount = 191 then hsync <= '0'; end if;
 			else
-				hcount <= 0;
-				hor_scan_q <= "00000000";
+				if vcount = 255 then		     -- DarFPGA 2017
+					hcount <= 1;              -- | fixed counters w.r.t schematics
+					hor_scan_q <= "00000001"; -- | (coherent with motion board explanations)
+				else			                 -- |
+					hcount <= 0;
+					hor_scan_q <= "00000000";
+				end if;				
 				c4_14 <= '1';						-- CE
 				star_enable <= '1';
 				state <= sLINE;
@@ -160,6 +165,7 @@ if rising_edge (game_clk) then
 				
 				hblank <= '1';
 				if vcount = 239 then vblank <= '1'; end if;
+				if vcount = 252 then vsync <= '1'; end if;
 
 				if vcount < 254 then				-- Increase vertical count
 					vcount <= vcount + 1;
@@ -173,6 +179,7 @@ if rising_edge (game_clk) then
 				else
 					vcount <= 1;
 					vblank <= '0';
+					vsync <= '0';
 					ver_scan_q <= "00000001";
 					f1_15 <= '0';
 					star_enable <= '0';
@@ -197,12 +204,9 @@ f1_12 <= ver_scan_q(6);
 -----------------------------------------------------------------------------	
 -- Clear signal to star generator														--
 -----------------------------------------------------------------------------
+
 b2_6 <= not f1_15;			
-			
------------------------------------------------------------------------------	
--- CREATING THE SYNC SIGNAL								 								--
------------------------------------------------------------------------------			
-vsync <= vblank;
+
 
 -----------------------------------------------------------------------------	
 -- COUNT ENABLE & BLANK									 									--

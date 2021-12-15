@@ -36,18 +36,17 @@ port(
 			Vs				: out std_logic;
 			Vb				: out std_logic;			
 			Hb				: out std_logic;	
-			Video			: out std_logic_vector(1 downto 0);
+			VID			: out std_logic_vector(7 downto 0);
 			Audio			: out std_logic_vector(6 downto 0);
 			Coin1_I		: in  std_logic;  -- Coin switches (Active low)
 			Coin2_I		: in  std_logic;
 			Start_I		: in  std_logic;  -- Start button
 			Gas_I			: in  std_logic;	-- Gas pedal
-			Gear1_I		: in  std_logic;  -- Gear shifter, 4th gear = no other gear selected
-			Gear2_I		: in  std_logic;
-			Gear3_I		: in  std_logic;
+			c_gearup		: in  std_logic;
+			c_geardown	: in  std_logic;
+			c_left		: in  std_logic;
+			c_right		: in  std_logic;
 			Test_I		: in  std_logic;  -- Self-test switch
-			SteerA_I		: in  std_logic;	-- Steering wheel inputs, these are quadrature encoders
-			SteerB_I		: in	std_logic;
 			StartLamp_O	: out std_logic	-- Start button lamp
 			);
 end sprint1;
@@ -93,7 +92,7 @@ signal Vblank			: std_logic;
 signal Hblank			: std_logic;
 signal Hsync			: std_logic;
 signal Vsync			: std_logic;
-
+signal Video			: std_logic_vector(1 downto 0);
 signal CompBlank_s	: std_logic;
 signal CompSync_n_s	: std_logic;
 
@@ -144,6 +143,24 @@ signal SW1				: std_logic_vector(7 downto 0);
 signal Inputs			: std_logic_vector(1 downto 0);
 signal Collisions1	: std_logic_vector(1 downto 0);
 signal Collisions2	: std_logic_vector(1 downto 0);
+signal Gearnum	  	: std_logic_vector(2 downto 0);
+signal Gear1			: std_logic; 
+signal Gear2			: std_logic; 
+signal Gear3			: std_logic;
+signal SteerA			: std_logic;
+signal SteerB			: std_logic;
+
+COMPONENT joy2quad
+	PORT
+	(
+		CLK			:	 IN STD_LOGIC;
+		clkdiv		:	 IN STD_LOGIC_VECTOR(31 DOWNTO 0);
+		c_right		:	 IN STD_LOGIC;
+		c_left		:	 IN STD_LOGIC;
+		SteerA		:	 OUT STD_LOGIC;
+		SteerB		:	 OUT STD_LOGIC
+	);
+END COMPONENT;
 
 begin
 -- Configuration DIP switches, these can be brought out to external switches if desired
@@ -176,6 +193,7 @@ port map(
 Background: entity work.playfield
 port map( 
 		clk6 => clk_6,
+		Gear_Shift_1 => Gearnum,
 		display => display,
 		HCount => HCount,
 		VCount => VCount,
@@ -263,18 +281,42 @@ port map(
 		Coin2_n => Coin2_I,
 		Start => not Start_I, -- Active high in real hardware, inverting these makes more sense with the FPGA
 		Gas => not Gas_I,
-		Gear1 => not Gear1_I,
-		Gear2 => not Gear2_I,
-		Gear3 => not Gear3_I,
+		Gear1 => not Gear1,
+		Gear2 => not Gear2,
+		Gear3 => not Gear3,
 		Self_Test => not Test_I,
-		Steering1A_n => SteerA_I,
-		Steering1B_n => SteerB_I,
+		Steering1A_n => SteerA,
+		Steering1B_n => SteerB,
 		SteerRst1_n => SteerRst1_n,
 		Adr => Adr,
 		Inputs => Inputs
-	);	
-
+	);
 	
+
+RotaryEncoder: joy2quad
+port map(
+		CLK => clk_6,
+		clkdiv => x"000057E4",
+		c_right => c_right,
+		c_left => c_left,
+		SteerA=> SteerA,
+		SteerB=> SteerB
+	);
+	
+			  
+Gears: entity work.gearshift
+port map(
+		CLK => clk_6,
+		reset => not Reset_n,
+		gearout => Gearnum,
+		gearup => c_gearup,
+		geardown => c_geardown,
+		gear1 => Gear1,
+		gear2 => Gear2,
+		gear3 => Gear3
+	);
+
+
 Sound: entity work.audio
 port map(
 		Clk_6 => Clk_6,
@@ -294,11 +336,20 @@ port map(
 Video(0) <= (not(BlackPF_n and Car2_n and Car3_4_n)) nor CompBlank_s;	
 Video(1) <= not(WhitePF_n and Car1_n);  
 Sync_O <= CompSync_n_s;
-
 Vb <= VBLANK;
 Hb <= HBLANK;
 Hs <= Hsync;
 Vs <= Vsync;
+
+col: process(clk_12, Video)
+begin
+	case Video is
+		when "01" => VID <= ("10000000");
+		when "10" => VID <= ("01010000");
+		when "11" => VID <= ("11111111");
+		when others => VID <= ("00000000");
+	end case;
+end process;
 
 
 end rtl;

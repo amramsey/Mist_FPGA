@@ -138,8 +138,8 @@ port
 	clock_24     : in std_logic;
 	clock_12     : in std_logic;
 	reset        : in std_logic;
+	cpu          : in std_logic; -- 1 - CPU by John Kent, 0 -- CPU by Greg Miller (Cycle exact)
 
-	 
 	video_r      : out std_logic_vector(3 downto 0);
 	video_g      : out std_logic_vector(3 downto 0);
 	video_b      : out std_logic_vector(3 downto 0);
@@ -154,7 +154,7 @@ port
 	frame		    : out std_logic;
 	
 	audio_out    : out std_logic_vector(9 downto 0);
-	cart_addr    : out std_logic_vector(13 downto 0);
+	cart_addr    : out std_logic_vector(14 downto 0);
 	cart_do      : in std_logic_vector( 7 downto 0);
 	cart_rd      : out std_logic;	
 	btn11        : in std_logic;
@@ -179,6 +179,34 @@ port
 end vectrex;
 
 architecture syn of vectrex is
+
+component mc6809 is port
+(
+	CPU    : in  std_logic;
+
+	CLK    : in  std_logic;
+	CLKEN  : in  std_logic;
+
+	E      : out std_logic;
+	riseE  : out std_logic;
+	fallE  : out std_logic;
+
+	Q      : out std_logic;
+	riseQ  : out std_logic;
+	fallQ  : out std_logic;
+
+	Din    : in  std_logic_vector(7 downto 0);
+	Dout   : out std_logic_vector(7 downto 0);
+	ADDR   : out std_logic_vector(15 downto 0);
+	RnW    : out std_logic;
+
+	nIRQ   : in  std_logic := '1';
+	nFIRQ  : in  std_logic := '1';
+	nNMI   : in  std_logic := '1';
+	nHALT  : in  std_logic := '1';
+	nRESET : in  std_logic := '1'
+);
+end component mc6809;
 
 --------------------------------------------------------------
 -- Configuration
@@ -216,12 +244,13 @@ architecture syn of vectrex is
 --------------------------------------------------------------
  
  signal clock_24n : std_logic;
- signal clock_div : std_logic_vector(2 downto 0);
+ signal clock_div : std_logic_vector(3 downto 0);
  signal clock_div2: std_logic_vector(6 downto 0);
  signal clock_250k: std_logic;
  signal reset_n   : std_logic;
 
  signal cpu_clock  : std_logic;
+ signal cpu_clock_en: std_logic;
  signal cpu_addr   : std_logic_vector(15 downto 0);
  signal cpu_di     : std_logic_vector( 7 downto 0);
  signal cpu_do     : std_logic_vector( 7 downto 0);
@@ -345,7 +374,8 @@ architecture syn of vectrex is
  signal pot     : signed(7 downto 0);
  signal compare : std_logic;
  signal players_switches : std_logic_vector(7 downto 0);
- 
+ signal ay_ioa_out : std_logic_vector(7 downto 0);
+
  signal vectrex_bd_rate_div       : std_logic_vector(7 downto 0) := X"00";
  signal vectrex_serial_bit_in     : std_logic;
  signal vectrex_serial_bit_in_d   : std_logic;
@@ -365,9 +395,9 @@ architecture syn of vectrex is
 begin
 
 -- debug
-process (clock_12)
+process (clock_24)
 begin 
-	if rising_edge(clock_12) then		
+	if rising_edge(clock_24) then
 		if cpu_ifetch = '1' then
 			dbg_cpu_addr <=  cpu_addr;
 		end if;
@@ -378,23 +408,13 @@ end process;
 reset_n <= not reset;
 clock_24n <= not clock_24;
 
-process (clock_12, reset)
-  begin
-	if reset='1' then
-		clock_div <= "000";
-	else
-      if rising_edge(clock_12) then
-			if clock_div = "111" then 
-				clock_div <= "000";
-			else
-				clock_div <= clock_div + '1';
-			end if;
-		end if;
+process (clock_24) begin
+	if rising_edge(clock_24) then
+		clock_div <= clock_div + '1';
 	end if;
 end process;
 
-via_en_4  <= clock_div(0);
-cpu_clock <= clock_div(2);
+via_en_4  <= '1' when clock_div(1 downto 0) = "11" else '0';
 
 process (clock_24, reset)
 begin
@@ -432,7 +452,7 @@ ram_we <=   '1' when cpu_rw = '0' and ram_cs = '1' else '0';
 
 -- misc
 cpu_irq <= not via_irq_n;
-cpu_firq <= '0';
+cpu_firq <= btn14;
 cart_rd <= cart_cs;
 cpu_di <= cart_do when cart_cs  = '1' else
 			 ram_do  when ram_cs   = '1' else
@@ -694,7 +714,7 @@ begin
 		if rising_edge(clock_24) then
 		
 			hcnt <= hcnt + '1';
-			if hcnt = 799 then 
+			if hcnt = 767 then --799 for 25 MHz
 				hcnt <= (others => '0');
 				if vcnt = 523 then 
 					vcnt <= (others => '0');
@@ -705,7 +725,7 @@ begin
 				if vcnt =   1 then video_vs <= '1'; end if;
 			end if;			
 			
-			if hcnt = 799 then video_hs <= '0'; end if;
+			if hcnt = 767 then video_hs <= '0'; end if; --799 for 25 MHz
 			if hcnt =  90 then video_hs <= '1'; end if;
 			
 			if vcnt_video = 0 or vcnt_video = (max_v-1) then
@@ -739,24 +759,77 @@ end process;
 video_hblank <= hblank;
 video_vblank <= vblank;
 scan_video_addr <= vcnt_video * std_logic_vector(to_unsigned(max_h,10)) + hcnt_video;
-		
--- sound	
-process (cpu_clock)
+
+-- sound
+process (clock_24)
 begin
-	if rising_edge(cpu_clock) then
+	if rising_edge(clock_24) then
 		if ay_audio_chan = "00" then ay_chan_a <= ay_audio_muxed; end if;
 		if ay_audio_chan = "01" then ay_chan_b <= ay_audio_muxed; end if;
 		if ay_audio_chan = "10" then ay_chan_c <= ay_audio_muxed; end if;
-	end if;	
+	end if;
 end process;
 
-audio_1  <= 	("00"&ay_chan_a) +
-					("00"&ay_chan_b) +
-					("00"&ay_chan_c) +
-					("00"&dac_sound);
+audio_1  <=     ("00"&ay_chan_a) +
+                ("00"&ay_chan_b) +
+                ("00"&ay_chan_c) +
+                ("00"&dac_sound);
 
 audio_out <=  "000"&audio_1(9 downto 3) + audio_speech;
 
+-- vectrex just toggle port A forced/high Z to produce serial data
+-- when in high Z vectrex sense port A to get speech chip ready for new byte
+vectrex_serial_bit_in <= (ay_ioa_oe or ay_ioa_out(4)) and speech_mode;
+
+-- get serial data from vectrex joystick port
+
+process (clock_24, reset)
+  begin
+	if reset='1' then
+		vectrex_bd_rate_div <= X"00";
+	elsif rising_edge(clock_24) then
+		if cpu_clock_en = '1' then
+
+                        vectrex_serial_bit_in_d <= vectrex_serial_bit_in;
+
+                        if vectrex_serial_bit_in /= vectrex_serial_bit_in_d then -- reset baud counter on either edge
+                                vectrex_bd_rate_div <= X"00";
+                        else
+                                if vectrex_bd_rate_div = X"9B" then -- 1.5MHz/156 = 9615kHz
+                                        vectrex_bd_rate_div <= X"00";
+                                else
+                                        vectrex_bd_rate_div <= vectrex_bd_rate_div + '1';
+                                end if;
+                        end if;
+
+                        if vectrex_bd_rate_div = X"4E" then
+                                vectrex_serial_data_shift <=  vectrex_serial_bit_in  & vectrex_serial_data_shift(7 downto 1); -- serial is lsb first (ok speakjet/vecvoice/vecvox)
+
+                                if vectrex_serial_bit_cnt = X"0" and vectrex_serial_bit_in = '0' then
+                                        vectrex_serial_bit_cnt <= X"1";
+                                        vectrex_serial_byte_rdy <= '0';
+                                end if;
+
+                                if vectrex_serial_bit_cnt > X"0" then
+                                        vectrex_serial_bit_cnt <= vectrex_serial_bit_cnt + '1';
+                                end if;
+
+                                if vectrex_serial_bit_cnt = X"A" then
+                                        vectrex_serial_bit_cnt <= X"0";
+                                end if;
+
+                        end if;
+
+                        if vectrex_bd_rate_div = X"60" then
+                                if vectrex_serial_bit_cnt = X"9" then
+                                        vectrex_serial_byte_rdy <= '1';
+                                        vectrex_serial_byte_out <= vectrex_serial_data_shift;
+                                end if;
+                        end if;
+
+		end if;
+	end if;
+end process;
 	
 frame <= frame_line;	
 ---------------------------
@@ -764,32 +837,29 @@ frame <= frame_line;
 ---------------------------			
 
 -- microprocessor 6809
-main_cpu : entity work.cpu09
-port map(	
-	clk      => cpu_clock,-- E clock input (falling edge)
-	ce			=> '1',
-	rst      => reset,    -- reset input (active high)
-	vma      => open,     -- valid memory address (active high)
-   lic_out  => open,     -- last instruction cycle (active high)
-   ifetch   => open,     -- instruction fetch cycle (active high)
-   opfetch  => cpu_fetch,-- opcode fetch (active high)
-   ba       => open,     -- bus available (high on sync wait or DMA grant)
-   bs       => open,     -- bus status (high on interrupt or reset vector fetch or DMA grant)
-	addr     => cpu_addr, -- address bus output
-	rw       => cpu_rw,   -- read not write output
-	data_out => cpu_do,   -- data bus output
-	data_in  => cpu_di,   -- data bus input
-	irq      => cpu_irq,  -- interrupt request input (active high)
-	firq     => cpu_firq, -- fast interrupt request input (active high)
-	nmi      => '0',      -- non maskable interrupt request input (active high)
-	halt     => '0'--,      -- halt input (active high) grants DMA
---	hold_in  => '0'       -- hold input (active high) extend bus cycle
+main_cpu : mc6809
+port map
+(
+	CLK    => clock_24,
+	CLKEN  => via_en_4,
+	nRESET => not reset,
+	CPU    => not cpu,
+
+	E      => cpu_clock,
+	riseQ  => cpu_clock_en,
+
+	Din    => cpu_di,
+	Dout   => cpu_do,
+	ADDR   => cpu_addr,
+	RnW    => cpu_rw,
+
+	nIRQ   => not cpu_irq,
+	nFIRQ  => not cpu_firq
 );
 
-		
 cpu_prog_rom : entity work.vectrex_exec_prom
 port map(
- clk  => cpu_clock,
+ clk  => clock_24,
  addr => cpu_addr(12 downto 0),
  data => rom_do
 );
@@ -822,12 +892,12 @@ port map(
 --);
 --------------------------------------------------------------------
 
- cart_addr <= cpu_addr(13 downto 0);
+cart_addr <= cpu_addr(14 downto 0);
 
 working_ram : entity work.gen_ram
 generic map( dWidth => 8, aWidth => 10)
 port map(
- clk  => cpu_clock,
+ clk  => clock_24,
  we   => ram_we,
  addr => cpu_addr(9 downto 0),
  d    => cpu_do,
@@ -871,12 +941,10 @@ port map(
  O_PB_OE_L       => open,
 
  RESET_L         => reset_n,
- CLK             => clock_12,
- I_P2_H          => cpu_clock,    -- high for phase 2 clock  ____----__
+ CLK             => clock_24,
+ I_P2_H          => not cpu_clock,-- high for phase 2 clock  ____----__
  ENA_4           => via_en_4      -- 4x system clock (4HZ)   _-_-_-_-_-
 );
-
-
 
 -- AY-3-8910
 ay_3_8910_2 : entity work.YM2149
@@ -891,23 +959,23 @@ port map(
   I_BDIR     => via_pb_o(4),  -- in  std_logic;
   I_BC2      => '1',       -- in  std_logic;
   I_BC1      => via_pb_o(3),   -- in  std_logic;
-  I_SEL_L    => '0',       -- in  std_logic;
+  I_SEL_L    => '1',       -- in  std_logic;
 
   O_AUDIO    => ay_audio_muxed, -- out std_logic_vector(7 downto 0);
   O_CHAN     => ay_audio_chan,  -- out std_logic_vector(1 downto 0);
-  
+
   -- port a
   I_IOA      => players_switches, -- in  std_logic_vector(7 downto 0);
-  O_IOA      => open,             -- out std_logic_vector(7 downto 0);
+  O_IOA      => ay_ioa_out,       -- out std_logic_vector(7 downto 0);
   O_IOA_OE_L => ay_ioa_oe,        -- out std_logic;
   -- port b
   I_IOB      => (others => '0'), -- in  std_logic_vector(7 downto 0);
   O_IOB      => open,            -- out std_logic_vector(7 downto 0);
   O_IOB_OE_L => open,            -- out std_logic;
 
-  ENA        => '1', --cpu_ena,  -- in  std_logic; -- clock enable for higher speed operation
+  ENA        => cpu_clock_en,    -- in  std_logic; -- clock enable for higher speed operation
   RESET_L    => reset_n,         -- in  std_logic;
-  CLK        => cpu_clock        -- in  std_logic  -- note 6 Mhz
+  CLK        => clock_24         -- in  std_logic
 );
 
 -- select hardware speakjet or VHDL sp0256

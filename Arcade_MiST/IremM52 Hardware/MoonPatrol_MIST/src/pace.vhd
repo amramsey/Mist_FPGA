@@ -6,14 +6,16 @@ library work;
 use work.pace_pkg.all;
 use work.video_controller_pkg.all;
 use work.sprite_pkg.all;
---use work.platform_pkg.all;
---use work.project_pkg.all;
+use work.target_pkg.all;
+use work.platform_pkg.all;
+use work.project_pkg.all;
 
 entity PACE is
   port
   (
   	-- clocks and resets
     clkrst_i        : in from_CLKRST_t;
+    palmode         : in std_logic;
 
     -- misc I/O
     buttons_i       : in from_BUTTONS_t;
@@ -39,8 +41,8 @@ end entity PACE;
 
 architecture SYN of PACE is
 
-	constant CLK_1US_COUNTS : integer := 
-    integer(27 * 50 / 20);
+	constant CLK_1US_COUNTS : integer :=
+		integer(PACE_CLKIN0 * PACE_CLK0_MULTIPLY_BY / PACE_CLK0_DIVIDE_BY);
 
 	signal mapped_inputs		: from_MAPPED_INPUTS_t(0 to 6-1);
 
@@ -133,6 +135,7 @@ begin
       graphics_o      => from_graphics,
 
 			-- video (incl. clk)
+      palmode         => palmode,
 			video_i					=> video_i,
 			video_o					=> video_o
     );

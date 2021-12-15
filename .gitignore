@@ -1,5 +1,25 @@
-
-Robotron - Z1013_MiST/Z1013_Mist.pti_db_list.ddb
-Robotron - Z1013_MiST/Z1013_Mist.tis_db_list.ddb
-Sharp - MZ-80K_MiST/mz80k.qws
-Robotron - Z1013_MiST/Z1013_Mist.vhd
+Test
+build_id.v
+db
+history.db
+greybox_tmp
+incremental_db
+output_files
+simulation
+PLLJ_PLLSPE_INFO.txt
+*.bak
+*.orig
+*.rej
+*.qdf
+*.rpt
+*.smsg
+*.summary
+*.done
+*.jdi
+*.pin
+*.sof
+*.qws
+*.ppf
+*.ddb
+*.srf
+common/CPU/T80/T80.qip

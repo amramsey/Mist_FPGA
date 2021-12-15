@@ -21,7 +21,6 @@ use IEEE.STD_LOGIC_UNSIGNED.all;
 entity CPU_mem is 
 port(		
 			CLK12				: in  	        std_logic;
-			CLK6				: in  	    	std_logic; -- 6MHz on schematic
 			Ena_3k				: buffer     	std_logic; -- 3kHz clock enable, used by sound circuit
 			Reset_I				: in  	     	std_logic;
 			Reset_n				: buffer	std_logic;
@@ -74,6 +73,7 @@ signal H16		: std_logic;
 signal H8		: std_logic;
 signal H4		: std_logic;
 
+signal V128_D : std_logic;
 signal V128		: std_logic;
 signal V64		: std_logic;
 signal V32		: std_logic;
@@ -130,7 +130,7 @@ signal K8_y		: std_logic_vector(1 downto 0);
 
 signal H7_y		: std_logic_vector(1 downto 0);
 
-signal ena_count        : std_logic_vector(10 downto 0) := (others => '0');
+signal ena_count        : std_logic_vector(11 downto 0) := (others => '0');
 signal ena_750k		: std_logic;
 
 
@@ -151,20 +151,21 @@ V64 <= VCount(6);
 V128 <= VCount(7);
 
 
+
 -- In the original hardware the CPU is clocked by a signal derived from 4H from the horizontal
 -- line counter. This attemps to do things in a manner that is more proper for a synchronous
 -- FPGA design using the main 6MHz clock in conjunction with a 750kHz clock enable for the CPU.
 -- This also creates a 3kHz clock enable used by the sound module.
-Clock_ena: process(Clk6) 
+Clock_ena: process(Clk12) 
 begin
-	if rising_edge(Clk6) then
+	if rising_edge(Clk12) then
 		ena_count <= ena_count + "1";
 		ena_750k <= '0';
-		if (ena_count(2 downto 0) = "000") then --100
+		if (ena_count(3 downto 0) = "0000") then --100
 			ena_750k <= '1'; -- 750 kHz
 		end if;
 		ena_3k <= '0';
-		if (ena_count(10 downto 0) = "00000000000") then
+		if (ena_count(11 downto 0) = "000000000000") then
 			ena_3k <= '1';
 		end if;
 	end if;
@@ -172,18 +173,21 @@ end process;
 
 
 -- Watchdog timer, counts pulses from V128 and resets CPU if not cleared by Timer_Reset_n
-Watchdog: process(V128, WDog_Clear, Reset_I)
+Watchdog: process(clk12, WDog_Clear, Reset_I)
 begin
 	if Reset_I = '0' then
 		WDog_count <= "1111";
-	elsif Wdog_Clear = '1' then
-		WDog_count <= "0000";
-	elsif rising_edge(V128) then
-		WDog_count <= WDog_count + 1;
+	elsif rising_edge(clk12) then 
+		V128_D <= V128;
+		if Wdog_Clear = '1' then
+			WDog_count <= "0000";
+		elsif V128_D = '0' and V128 = '1' then
+			WDog_count <= WDog_count + 1;
+		end if;
 	end if;
 end process;
 WDog_Clear <= (Test_n nand Timer_Reset_n);
-Reset_n <= (not WDog_count(3));
+Reset_n <= not WDog_count(3);
 
 
 CPU: entity work.T65
@@ -191,7 +195,7 @@ port map(
 		Enable => ena_750k,
 		Mode => "00",
 		Res_n => reset_n,
-		Clk => Clk6,
+		Clk => Clk12,
 		Rdy => '1',
 		Abort_n => '1',
 		IRQ_n => '1',
@@ -241,23 +245,35 @@ end process;
 		
 
 -- Program ROMs
-J1: entity work.prog_rom3L
+J1: entity work.sprom
+generic map(
+		init_file => "./roms/9499-01.j1.mif",
+		widthad_a => 10,
+		width_a => 4)
 port map(
-		clock => clk6,
+		clock => clk12, 
 		address => Adr(9 downto 0),
 		q => rom3_dout(3 downto 0)
 		);
 
-P1: entity work.prog_rom3H
+P1: entity work.sprom
+generic map(
+		init_file => "./roms/9503-01.p1.mif",
+		widthad_a => 10,
+		width_a => 4)
 port map(
-		clock => clk6,
+		clock => clk12, 
 		address => Adr(9 downto 0),
 		q => rom3_dout(7 downto 4)
 		);
-		
-D1: entity work.progROM4
+
+D1: entity work.sprom
+generic map(
+		init_file => "./roms/9496-01.d1.mif",
+		widthad_a => 11,
+		width_a => 8)
 port map(
-		clock => clk6,
+		clock => clk12, 
 		address => Adr(10 downto 0),
 		q => rom4_dout
 		);
@@ -265,31 +281,33 @@ port map(
 -- ROM data mux
 ROM_dout <= ROM3_dout when ROM3 = '1' and Adr(10) = '1' else
 			ROM4_dout when ROM4 = '1' else
-			x"FF";
-			
-	
--- CPU RAM
--- 256x4 RAM chips at E7 and D7 form zero-page memory
-ED7: entity work.ram256
+			x"FF";		
+
+ED7: entity work.spram
+generic map(
+		addr_width_g => 8,
+		data_width_g => 8)
 port map(
-		clock => Clk6,
+		clock => Clk12,
 		address => Adr(7 downto 0),
 		wren => (not write_n) and (not WRAM_n),
 		data => CPUDout,
 		q => addRAM_dout
-		);			
-
+		);
 		
 -- Video RAM
--- Access is multiplexed between the CPU and video hardware depending on the state of Phi2
-Video_RAM: entity work.ram1k
+-- Access is multiplexed between the CPU and video hardware depending on the state of Phi2	
+Video_RAM: entity work.spram
+generic map(
+		addr_width_g => 10,
+		data_width_g => 8)
 port map(
-	clock => Clk12,
-	address => Vram_addr,
-	wren => ram_we,
-	data => CPUDout,
-	q => VRAM_Dout
-	);
+		clock => Clk12,
+		address => Vram_addr,
+		wren => ram_we,
+		data => CPUDout,
+		q => VRAM_Dout
+		);	
 
 --Video RAM is addressed by video circuitry when Phi2 is low and by CPU when Phi2 is high
 Vram_addr <= (V128 or H256_n) & (V64 or H256_n) & (V32 or H256_n) & (V16 or H256_n) & (V8 and H256) & H128 & H64 & H32 & H16 & H8
@@ -328,7 +346,7 @@ Explode_n <= '0' when Write_n = '0' and Adr(13 downto 9) = "00010" and Adr(8) = 
 Timer_Reset_n <= '0' when Write_n = '0' and Adr(13 downto 9) = "00010" and Adr(8) = '1' and Adr(0) = '1' else '1';
 
 -- 9334 addressable latch at C7, this drives outputs
-C7: process(clk6, Reset_n, Adr)
+C7: process(clk12, Reset_n, Adr)
 begin
 	if (Reset_n = '0') then
 		Whistle1 <= '0'; 		-- Shell whistle sound 1
@@ -337,7 +355,7 @@ begin
 		Player2Lamp <= '0'; 	-- Player 2 Start LED
 		Attract1 <= '0';		-- Attract1 signal
 		Attract2 <= '0';		-- Attract2 signal
-		elsif rising_edge(clk6) then
+		elsif rising_edge(clk12) then
 		-- This next line models part of the address decoder that enables this latch
 		if (Write_n = '0' and ADR(13 downto 9) = "00011") then 
 		  case Adr(8 downto 7) & Adr(0) is

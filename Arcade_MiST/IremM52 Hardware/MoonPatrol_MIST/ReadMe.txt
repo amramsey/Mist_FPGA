@@ -12,16 +12,18 @@
 -- cpu68 - Version 9th Jan 2004 0.8
 -- 6800/01 compatible CPU core 
 -- GNU public license - December 2002 : John E. Kent
+
+-- jt5205 by Jotego
 ---------------------------------------------------------------------------------
 -- 
 -- 
--- Keyboard inputs :
+-- Keyboard and Joystick controls :
 --
---   ESC         : Coin + Start
---   SPACE       : Fire
---   CTRL,UP     : Jump
---   LEFT,RIGHT  : Increase/Decrease the speed
+--   ESC     or Button C     : Coin
+--   1, 2    or Button Start : Start
+--   SPACE   or Button A     : Fire
+--   ALT, UP or Button B     : Jump
+--   LEFT,RIGHT              : Increase/Decrease the speed
 --
--- Joystick support.
--- 
+--
 ---------------------------------------------------------------------------------

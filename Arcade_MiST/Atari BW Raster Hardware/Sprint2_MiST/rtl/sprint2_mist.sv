@@ -21,146 +21,154 @@ module sprint2_mist(
 localparam CONF_STR = {
 	"Sprint2;;",
 	"O1,Test Mode,Off,On;",
-//	"T2,Next Track;",
-	"O34,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%;",
-	"T6,Reset;",
-	"V,v1.00.",`BUILD_DATE
+	"T2,Next Track;",
+	"O34,Scanlines,Off,25%,50%,75%;",
+	"T0,Reset;",
+	"V,v1.25.",`BUILD_DATE
 };
 
-wire [31:0] status;
+assign LED = 1;
+
+wire clk_24, clk_12;
+wire locked;
+pll pll(
+	.inclk0(CLOCK_27),
+	.c0(clk_24),//24.192
+	.c1(clk_12),//12.096
+	.locked(locked)
+	);
+
+wire [63:0] status;
 wire  [1:0] buttons;
 wire  [1:0] switches;
-wire  [9:0] kbjoy;
-wire  [7:0] joystick_0;
-wire  [7:0] joystick_1;
-wire        scandoubler_disable;
+wire [31:0] joystick_0, joystick_1;
+wire        scandoublerD;
 wire        ypbpr;
-wire        ps2_kbd_clk, ps2_kbd_data;
+wire        key_pressed;
+wire  [7:0] key_code;
+wire        key_strobe;
+wire        no_csync;
 wire  [6:0] audio1, audio2;
-wire	[1:0] video;
+wire	[7:0] vid;
+wire 			vb, hb;
+wire 			blankn = ~(hb | vb);
+wire 			hs, vs;
 
-wire clk_24, clk_12, clk_6;
-wire locked;
-pll pll
-(
-	.inclk0(CLOCK_27),
-	.c0(clk_24),
-	.c1(clk_12),
-	.c2(clk_6),
-	.locked(locked)
-);
-
-wire led1, led2;
-assign LED = (led1 | led2);
-
-sprint2 sprint2 (
+sprint2 sprint2(
 	.clk_12(clk_12),
-	.Reset_n(~(status[0] | status[6] | buttons[1])),
-	.VideoW_O(),
-	.VideoB_O(),
-	.Sync_O(),					
+	.Reset_n(~(status[0] | buttons[1])),			
 	.Hs(hs),
 	.Vs(vs),
 	.Vb(vb),		
 	.Hb(hb),
-	.Video(video),			
+	.VID(vid),			
 	.Audio1_O(audio1),
 	.Audio2_O(audio2),
-	.Coin1_I(~kbjoy[7]),
-	.Coin2_I(~kbjoy[7]),
-	.Start1_I(~kbjoy[5]),
-	.Start2_I(~kbjoy[6]),
-	.Trak_Sel_I(),//~status[2]),
-	.Gas1_I(~kbjoy[4]),
-	.Gas2_I(),
-//	.Gear1_1_I(),//                                                                                                                                                                                                                                                                                                           Gear shifters, 4th gear = no other gear selected
-//	.Gear1_2_I(),
-//	.Gear1_3_I(),
-//	.Gear2_1_I(),
-//	.Gear2_2_I(),
-//	.Gear2_3_I(),
+	.Coin1_I(~m_coin1),
+	.Coin2_I(~m_coin2),
+	.Start1_I(~m_one_player),
+	.Start2_I(~m_two_players),
+	.Trak_Sel_I(~status[2]),
+	.Gas1_I(~m_fireA),
+	.Gas2_I(~m_fire2A),
+	.c_gearup(m_fireB),
+	.c_geardown(m_fireC),
+	.c_left(m_right),//?
+	.c_right(m_left),//?
+	.c_gearup2(m_fire2B),
+	.c_geardown2(m_fire2C),
+	.c_left2(m_right2),//?
+	.c_right2(m_left2),//?
 	.Test_I(~status[1]),
-	.Steer_1A_I(~kbjoy[1]),// Steering wheel inputs, these are quadrature encoders
-	.Steer_1B_I(~kbjoy[0]),
-//	.Steer_2A_I(),
-//	.Steer_2B_I(),
-	.Lamp1_O(led1),
-	.Lamp2_O(led2)
-);
-
-dac dac1 (
-	.CLK(clk_24),
-	.RESET(1'b0),
-	.DACin(audio1),
-	.DACout(AUDIO_L)
+	.Lamp1_O(),
+	.Lamp2_O()
 	);
 	
-dac dacr (
-	.CLK(clk_24),
-	.RESET(1'b0),
-	.DACin(audio2),
-	.DACout(AUDIO_R)
-	);	
-
-wire hs, vs;
-wire hb, vb;
-wire blankn = ~(hb | vb);
-video_mixer #(.LINE_LENGTH(480), .HALF_DEPTH(1)) video_mixer
-(
-	.clk_sys(clk_24),
-	.ce_pix(clk_6),
-	.ce_pix_actual(clk_6),
-	.SPI_SCK(SPI_SCK),
-	.SPI_SS3(SPI_SS3),
-	.SPI_DI(SPI_DI),
-	.R({video,video,video}),
-	.G({video,video,video}),
-	.B({video,video,video}),
-//	.R(blankn ? {video,video,video} : "000"),
-//	.G(blankn ? {video,video,video} : "000"),
-//	.B(blankn ? {video,video,video} : "000"),
-	.HSync(hs),
-	.VSync(vs),
-	.VGA_R(VGA_R),
-	.VGA_G(VGA_G),
-	.VGA_B(VGA_B),
-	.VGA_VS(VGA_VS),
-	.VGA_HS(VGA_HS),
-	.scandoubler_disable(scandoubler_disable),
-	.scanlines(scandoubler_disable ? 2'b00 : {status[4:3] == 3, status[4:3] == 2}),
-	.hq2x(status[4:3]==1),
-	.ypbpr_full(1),
-	.line_start(0),
-	.mono(0)
-);
-
-mist_io #(.STRLEN(($size(CONF_STR)>>3))) mist_io
-(
-	.clk_sys        (clk_24   	     ),
-	.conf_str       (CONF_STR       ),
-	.SPI_SCK        (SPI_SCK        ),
-	.CONF_DATA0     (CONF_DATA0     ),
-	.SPI_SS2			 (SPI_SS2        ),
-	.SPI_DO         (SPI_DO         ),
-	.SPI_DI         (SPI_DI         ),
-	.buttons        (buttons        ),
-	.switches   	 (switches       ),
-	.scandoubler_disable(scandoubler_disable),
-	.ypbpr          (ypbpr          ),
-	.ps2_kbd_clk    (ps2_kbd_clk    ),
-	.ps2_kbd_data   (ps2_kbd_data   ),
-	.joystick_0   	 (joystick_0     ),
-	.joystick_1     (joystick_1     ),
-	.status         (status         )
-);
-
-keyboard keyboard(
-	.clk(clk_24),
-	.reset(),
-	.ps2_kbd_clk(ps2_kbd_clk),
-	.ps2_kbd_data(ps2_kbd_data),
-	.joystick(kbjoy)
+mist_video #(
+	.COLOR_DEPTH(6), 
+	.SD_HCNT_WIDTH(9)) 
+mist_video(
+	.clk_sys        ( clk_24           ),
+	.SPI_SCK        ( SPI_SCK          ),
+	.SPI_SS3        ( SPI_SS3          ),
+	.SPI_DI         ( SPI_DI           ),
+	.R					(blankn ? {vid[7:2]} : 0),
+	.G					(blankn ? {vid[7:2]} : 0),
+	.B					(blankn ? {vid[7:2]} : 0),
+	.HSync          ( hs               ),
+	.VSync          ( vs               ),
+	.VGA_R          ( VGA_R            ),
+	.VGA_G          ( VGA_G            ),
+	.VGA_B          ( VGA_B            ),
+	.VGA_VS         ( VGA_VS           ),
+	.VGA_HS         ( VGA_HS           ),
+	.scanlines      (scandoublerD ? 2'b00 : status[4:3]),
+//	.rotate         ( { 1'b1, rotate } ),
+//	.ce_divider     ( 1'b1             ),
+	.blend          ( status[6]        ),
+	.scandoubler_disable(scandoublerD  ),
+	.no_csync       ( no_csync         ),
+	.ypbpr          ( ypbpr            )
 	);
 
+user_io #(
+	.STRLEN(($size(CONF_STR)>>3)))
+user_io(
+	.clk_sys        (clk_24         ),
+	.conf_str       (CONF_STR       ),
+	.SPI_CLK        (SPI_SCK        ),
+	.SPI_SS_IO      (CONF_DATA0     ),
+	.SPI_MISO       (SPI_DO         ),
+	.SPI_MOSI       (SPI_DI         ),
+	.buttons        (buttons        ),
+	.switches       (switches       ),
+	.scandoubler_disable (scandoublerD	  ),
+	.ypbpr          (ypbpr          ),
+	.no_csync       (no_csync       ),
+	.key_strobe     (key_strobe     ),
+	.key_pressed    (key_pressed    ),
+	.key_code       (key_code       ),
+	.joystick_0     (joystick_0     ),
+	.joystick_1     (joystick_1     ),
+	.status         (status         )
+	);
 
-endmodule
+dac #(
+	.C_bits(7))
+dac_l(
+	.clk_i(clk_24),
+	.res_n_i(1),
+	.dac_i(audio1),
+	.dac_o(AUDIO_L)
+	);
+	
+dac #(
+	.C_bits(7))
+dac_r(
+	.clk_i(clk_24),
+	.res_n_i(1),
+	.dac_i(audio2),
+	.dac_o(AUDIO_R)
+	);	
+	
+wire m_up, m_down, m_left, m_right, m_fireA, m_fireB, m_fireC, m_fireD, m_fireE, m_fireF;
+wire m_up2, m_down2, m_left2, m_right2, m_fire2A, m_fire2B, m_fire2C, m_fire2D, m_fire2E, m_fire2F;
+wire m_tilt, m_coin1, m_coin2, m_coin3, m_coin4, m_one_player, m_two_players, m_three_players, m_four_players;
+
+arcade_inputs inputs (
+	.clk         ( clk_24      ),
+	.key_strobe  ( key_strobe  ),
+	.key_pressed ( key_pressed ),
+	.key_code    ( key_code    ),
+	.joystick_0  ( joystick_0  ),
+	.joystick_1  ( joystick_1  ),
+//	.rotate      ( rotate      ),
+//	.orientation ( 2'b11       ),
+	.joyswap     ( 1'b0        ),
+	.oneplayer   ( 1'b0        ),
+	.controls    ( {m_tilt, m_coin4, m_coin3, m_coin2, m_coin1, m_four_players, m_three_players, m_two_players, m_one_player} ),
+	.player1     ( {m_fireF, m_fireE, m_fireD, m_fireC, m_fireB, m_fireA, m_up, m_down, m_left, m_right} ),
+	.player2     ( {m_fire2F, m_fire2E, m_fire2D, m_fire2C, m_fire2B, m_fire2A, m_up2, m_down2, m_left2, m_right2} )
+);
+
+endmodule 
